@@ -1,0 +1,68 @@
+sistema_inventario/
+│
+├── app/                            # Todo el código fuente
+│   ├── __init__.py
+│   │
+│   ├── ui/                         # Pantallas e interfaces gráficas
+│   │   ├── __init__.py
+│   │   ├── main_window.py          # Ventana principal / menú
+│   │   ├── login_window.py         # Pantalla de autenticación
+│   │   ├── inventario_view.py      # Vista de inventario
+│   │   ├── reportes_view.py        # Vista de reportes
+│   │   └── components/             # Widgets reutilizables (tablas, botones)
+│   │       └── tabla_productos.py
+│   │
+│   ├── controllers/                # Lógica que conecta UI con datos
+│   │   ├── __init__.py
+│   │   ├── auth_controller.py      # Login, sesión, permisos
+│   │   ├── inventario_controller.py
+│   │   └── reportes_controller.py
+│   │
+│   ├── models/                     # Modelos de datos (tablas SQLite)
+│   │   ├── __init__.py
+│   │   ├── usuario.py
+│   │   ├── producto.py
+│   │   └── movimiento.py           # Entradas/salidas de inventario
+│   │
+│   ├── services/                   # Lógica de negocio pura
+│   │   ├── __init__.py
+│   │   ├── excel_service.py        # Importar / exportar Excel
+│   │   └── reporte_service.py      # Generar reportes / estadísticas
+│   │
+│   └── utils/                      # Utilidades compartidas
+│       ├── __init__.py
+│       ├── logger.py               # Registro de errores y eventos
+│       └── validators.py           # Validaciones de formularios
+│
+├── db/                             # Base de datos y migraciones
+│   ├── database.py                 # Conexión y configuración SQLite
+│   ├── migrations/                 # Scripts de creación de tablas
+│   │   └── 001_initial.py
+│   └── inventario.db               # Archivo SQLite generado (no subir a git)
+│
+├── assets/                         # Recursos visuales
+│   ├── icons/                      # Íconos de la aplicación (.png, .svg)
+│   ├── images/                     # Imágenes o logos
+│   └── styles/                     # Hojas de estilo Qt (.qss)
+│       └── theme.qss
+│
+├── data/                           # Archivos Excel de entrada/plantillas
+│   ├── plantilla_productos.xlsx    # Plantilla editable por el usuario
+│   └── ejemplos/
+│
+├── tests/                          # Tests automatizados
+│   ├── test_inventario.py
+│   ├── test_excel_service.py
+│   └── test_auth.py
+│
+├── config/
+│   ├── settings.py                 # Configuración central (rutas, versión)
+│   └── constants.py                # Constantes globales
+│
+├── logs/                           # Logs generados automáticamente
+│   └── .gitkeep
+│
+├── .gitignore
+├── requirements.txt
+├── README.md
+└── main.py                         # Punto de entrada — arranca la app
