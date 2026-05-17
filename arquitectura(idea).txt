@@ -1,4 +1,4 @@
-sistema_inventario/
+inventorySystemForLaboratory/
 │
 ├── app/                            # Todo el código fuente
 │   ├── __init__.py

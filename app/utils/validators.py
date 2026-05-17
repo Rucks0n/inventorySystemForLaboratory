@@ -1,7 +1,7 @@
 """
 app/utils/validators.py
 ------------------------
-Funciones de validación reutilizables.
+Funciones de validación reutilizables para formularios.
 Úsalas en los controllers antes de guardar datos en la BD.
 
 Todas retornan (True, "") si el dato es válido,
@@ -9,26 +9,36 @@ o (False, "mensaje de error") si no lo es.
 """
 
 
-def validar_campo_requerido(valor: str, nombre_campo: str):
+def campo_requerido(valor, nombre_campo: str) -> tuple[bool, str]:
     """Verifica que un campo de texto no esté vacío."""
-    if not valor or not str(valor).strip():
+    if valor is None or str(valor).strip() == "":
         return False, f"El campo '{nombre_campo}' es obligatorio."
     return True, ""
 
 
-def validar_numero_positivo(valor, nombre_campo: str):
+def numero_positivo(valor, nombre_campo: str) -> tuple[bool, str]:
     """Verifica que el valor sea un número mayor o igual a cero."""
     try:
-        numero = float(valor)
-        if numero < 0:
+        if float(valor) < 0:
             return False, f"'{nombre_campo}' debe ser un valor positivo."
         return True, ""
     except (ValueError, TypeError):
         return False, f"'{nombre_campo}' debe ser un número válido."
 
 
-def validar_longitud(valor: str, nombre_campo: str, minimo=1, maximo=100):
-    """Verifica que un texto tenga una longitud dentro del rango permitido."""
+def numero_entero_positivo(valor, nombre_campo: str) -> tuple[bool, str]:
+    """Verifica que el valor sea un entero >= 1."""
+    try:
+        n = int(valor)
+        if n < 1:
+            return False, f"'{nombre_campo}' debe ser al menos 1."
+        return True, ""
+    except (ValueError, TypeError):
+        return False, f"'{nombre_campo}' debe ser un número entero válido."
+
+
+def longitud(valor: str, nombre_campo: str, minimo: int = 1, maximo: int = 200) -> tuple[bool, str]:
+    """Verifica longitud de texto dentro de rango permitido."""
     largo = len(str(valor).strip())
     if largo < minimo:
         return False, f"'{nombre_campo}' debe tener al menos {minimo} caracteres."
@@ -37,28 +47,34 @@ def validar_longitud(valor: str, nombre_campo: str, minimo=1, maximo=100):
     return True, ""
 
 
-def validar_formulario(campos: dict):
+def correo(valor: str) -> tuple[bool, str]:
+    """Validación básica de formato de correo electrónico."""
+    v = str(valor).strip()
+    if "@" not in v or "." not in v.split("@")[-1]:
+        return False, "El correo electrónico no tiene un formato válido."
+    return True, ""
+
+
+def formulario(campos: dict) -> tuple[bool, str]:
     """
-    Valida múltiples campos de un formulario de una sola vez.
+    Valida múltiples campos requeridos de un formulario de una sola vez.
 
     Parámetro:
-        campos: diccionario con { nombre_campo: valor }
+        campos: { "Nombre del campo": valor, ... }
 
-    Retorna:
-        (True, "")  si todo es válido
-        (False, "primer mensaje de error encontrado")
+    Retorna (True, "") si todo es válido,
+    o (False, "primer mensaje de error encontrado").
 
     Ejemplo de uso en un controller:
-        valido, mensaje = validar_formulario({
-            "Nombre":   nombre,
-            "Cantidad": cantidad,
+        ok, msg = validators.formulario({
+            "Nombre":   datos.get("nombre"),
+            "Cantidad": datos.get("cantidad"),
         })
-        if not valido:
-            mostrar_error(mensaje)
-            return
+        if not ok:
+            return False, msg
     """
     for nombre, valor in campos.items():
-        ok, msg = validar_campo_requerido(valor, nombre)
+        ok, msg = campo_requerido(valor, nombre)
         if not ok:
             return False, msg
     return True, ""
