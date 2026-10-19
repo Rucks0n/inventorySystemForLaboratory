@@ -1,29 +1,17 @@
 """
-db/migrations/001_initial.py
------------------------------
-Primera y principal migración del sistema.
-Crea todas las tablas basadas en la estructura real de los Excel originales:
+db/migrations/migration_001.py
+------------------------------
+Migración base del sistema.
+Crea todas las tablas. Los depósitos ya NO vienen hardcodeados —
+el administrador los crea desde la interfaz.
 
-    inventario.xlsx  →  depósitos (Depósito1/2/3) + docentes
-    gestion.xlsx     →  préstamos, devoluciones, movimientos
-
-Tablas creadas:
-    depositos     — los 3 depósitos físicos donde se almacenan los ítems
-    items         — cada ítem de inventario con su stock y disponibilidad
-    docentes      — docentes que pueden solicitar préstamos
-    usuarios      — usuarios del sistema (estudiantes / personal)
-    prestamos     — préstamos activos e históricos
-    devoluciones  — registro de cada devolución
-    movimientos   — historial completo (Salida / Devolución / Entrada)
-
-Para ejecutar manualmente desde la raíz del proyecto:
-    python db/migrations/001_initial.py
+Para ejecutar manualmente desde la raíz:
+    python db/migrations/migration_001.py
 """
 
 import sys
 import os
 
-# Permite ejecutar este archivo directamente sin errores de importación
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__)
 ))))
@@ -33,13 +21,9 @@ from app.utils.logger import log
 
 
 def ejecutar():
-    """Crea todas las tablas si aún no existen. Seguro de ejecutar más de una vez."""
-
     conn   = obtener_conexion()
     cursor = conn.cursor()
 
-    # ── depositos ──────────────────────────────────────────────────────────────
-    # Cada hoja del inventario.xlsx representa un depósito físico
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS depositos (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -48,8 +32,6 @@ def ejecutar():
         )
     """)
 
-    # ── items ──────────────────────────────────────────────────────────────────
-    # Columnas originales: ID Item | Item | Referencia | Cantidad | Ubicación | Observaciones
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS items (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -66,8 +48,6 @@ def ejecutar():
         )
     """)
 
-    # ── docentes ───────────────────────────────────────────────────────────────
-    # Hoja 'Docente' de inventario.xlsx: Docente | Correo | Motivo
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS docentes (
             id      INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -78,9 +58,6 @@ def ejecutar():
         )
     """)
 
-    # ── usuarios ───────────────────────────────────────────────────────────────
-    # Estudiantes o personal que solicitan préstamos y acceden al sistema
-    # Los usuarios del sistema llevan contraseña; los solicitantes de préstamos no
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS usuarios (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -88,15 +65,13 @@ def ejecutar():
             codigo      TEXT    NOT NULL UNIQUE,
             correo      TEXT,
             telefono    TEXT,
-            contrasena  TEXT,                          -- NULL si es solo solicitante
+            contrasena  TEXT,
             rol         TEXT    NOT NULL DEFAULT 'usuario',
             activo      INTEGER NOT NULL DEFAULT 1,
             creado_en   TEXT    DEFAULT (datetime('now'))
         )
     """)
 
-    # ── prestamos ──────────────────────────────────────────────────────────────
-    # Hoja 'Prestamos' de gestion.xlsx
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS prestamos (
             id               INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -116,8 +91,6 @@ def ejecutar():
         )
     """)
 
-    # ── devoluciones ───────────────────────────────────────────────────────────
-    # Hoja 'Devoluciones' de gestion.xlsx
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS devoluciones (
             id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -133,9 +106,6 @@ def ejecutar():
         )
     """)
 
-    # ── movimientos ────────────────────────────────────────────────────────────
-    # Hoja 'Movimientos' de gestion.xlsx: historial completo
-    # Tipo: 'Salida' | 'Devolución' | 'Entrada'
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS movimientos (
             id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -153,19 +123,9 @@ def ejecutar():
         )
     """)
 
-    # ── Datos iniciales: los 3 depósitos del sistema original ─────────────────
-    cursor.executemany("""
-        INSERT OR IGNORE INTO depositos (nombre, descripcion) VALUES (?, ?)
-    """, [
-        ("Depósito1", "Materiales de impresión 3D y filamentos"),
-        ("Depósito2", "Componentes neumáticos y electromecánicos"),
-        ("Depósito3", "Equipos de soldadura y kits electrónicos"),
-    ])
-
     conn.commit()
     conn.close()
-
-    log.info("Migración 001 ejecutada: todas las tablas creadas correctamente.")
+    log.info("Migración 001 ejecutada: tablas creadas.")
     print("✔  Tablas creadas correctamente.")
 
 

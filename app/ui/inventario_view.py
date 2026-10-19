@@ -1,57 +1,48 @@
 """
 app/ui/inventario_view.py
 --------------------------
-Pestaña principal de inventario.
-Contiene un QTabWidget interno con una pestaña por depósito.
+Vista de inventario con pestañas dinámicas por depósito.
 
-Cada pestaña muestra:
-    - Tabla de ítems del depósito
-    - Buscador global
-    - Botones: Agregar / Editar / Eliminar ítem
-
-Flujo:
-    InventarioView
-        └── QTabWidget interno
-                ├── _TabDeposito (Depósito1)
-                ├── _TabDeposito (Depósito2)
-                └── _TabDeposito (Depósito3)
+Si el usuario es admin ve además el panel de gestión de depósitos
+donde puede crear, editar y eliminar espacios con cualquier nombre.
 """
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
-    QTableWidget, QTableWidgetItem, QHeaderView,
+    QTableWidget, QTableWidgetItem,
     QPushButton, QLineEdit, QLabel, QMessageBox,
     QDialog, QFormLayout, QSpinBox, QTextEdit,
-    QComboBox, QAbstractItemView
+    QComboBox, QAbstractItemView, QFrame, QSizePolicy
 )
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui  import QFont, QColor
 
-from app.controllers.inventario_controller import InventarioController
+from app.controllers.inventario_controller import InventarioController, DepositosController
 from app.utils.logger                       import log
-from config.constants                       import COLS_INVENTARIO
+from config.constants                       import ROL_ADMIN
 
 
 class InventarioView(QWidget):
-    """Vista principal de inventario con pestañas por depósito."""
+    """Vista principal de inventario."""
 
     def __init__(self, usuario: dict):
         super().__init__()
-        self.usuario    = usuario
-        self.controller = InventarioController()
+        self.usuario     = usuario
+        self.es_admin    = usuario.get("rol") == ROL_ADMIN
+        self.ctrl_inv    = InventarioController()
+        self.ctrl_dep    = DepositosController()
         self._construir_ui()
         self._cargar_depositos()
 
-    # ── UI principal ───────────────────────────────────────────────────────────
+    # ── UI ─────────────────────────────────────────────────────────────────────
 
     def _construir_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(10)
 
-        # ── Barra superior: título + buscador global ───────────────────────────
+        # Barra superior
         barra = QHBoxLayout()
-
         lbl = QLabel("Inventario")
         lbl.setFont(QFont("Arial", 14, QFont.Weight.Bold))
         lbl.setStyleSheet("color: #2E5090;")
@@ -60,50 +51,62 @@ class InventarioView(QWidget):
         self.input_buscar.setPlaceholderText("🔍  Buscar en todos los depósitos...")
         self.input_buscar.setFixedWidth(320)
         self.input_buscar.setFixedHeight(34)
-        self.input_buscar.setStyleSheet(self._estilo_input())
-        # Búsqueda con pequeño delay para no consultar en cada tecla
-        self._timer_busqueda = QTimer()
-        self._timer_busqueda.setSingleShot(True)
-        self._timer_busqueda.timeout.connect(self._buscar)
-        self.input_buscar.textChanged.connect(
-            lambda: self._timer_busqueda.start(350)
-        )
+        self._timer = QTimer()
+        self._timer.setSingleShot(True)
+        self._timer.timeout.connect(self._buscar)
+        self.input_buscar.textChanged.connect(lambda: self._timer.start(350))
 
         btn_limpiar = QPushButton("✕")
         btn_limpiar.setFixedSize(34, 34)
         btn_limpiar.setToolTip("Limpiar búsqueda")
-        btn_limpiar.setStyleSheet(self._estilo_btn_secundario())
         btn_limpiar.clicked.connect(self._limpiar_busqueda)
 
         barra.addWidget(lbl)
         barra.addStretch()
         barra.addWidget(self.input_buscar)
         barra.addWidget(btn_limpiar)
+
+        # Panel de depósitos (solo admin)
+        if self.es_admin:
+            barra.addSpacing(16)
+            btn_depositos = QPushButton("🗂  Gestionar depósitos")
+            btn_depositos.setFixedHeight(34)
+            btn_depositos.setStyleSheet(self._btn_admin())
+            btn_depositos.clicked.connect(self._gestionar_depositos)
+            barra.addWidget(btn_depositos)
+
         layout.addLayout(barra)
 
-        # ── Pestañas internas por depósito ────────────────────────────────────
+        # Pestañas por depósito
         self.tabs_depositos = QTabWidget()
-        self.tabs_depositos.setStyleSheet(self._estilo_tabs_internos())
+        self.tabs_depositos.setStyleSheet(self._estilo_tabs())
+        self.tabs_depositos.currentChanged.connect(self._actualizar_total)
         layout.addWidget(self.tabs_depositos)
 
-        # ── Barra de acciones inferior ─────────────────────────────────────────
+        # Acciones de ítems
         acciones = QHBoxLayout()
-
         self.btn_agregar  = QPushButton("＋  Agregar ítem")
         self.btn_editar   = QPushButton("✏  Editar ítem")
         self.btn_eliminar = QPushButton("🗑  Eliminar ítem")
+        self.lbl_total    = QLabel("")
 
         for btn in [self.btn_agregar, self.btn_editar, self.btn_eliminar]:
             btn.setFixedHeight(36)
-            btn.setStyleSheet(self._estilo_btn_accion())
 
-        self.btn_eliminar.setStyleSheet(self._estilo_btn_peligro())
-        self.btn_agregar.clicked.connect(self._abrir_formulario_agregar)
-        self.btn_editar.clicked.connect(self._abrir_formulario_editar)
+        self.btn_agregar.setStyleSheet(self._btn_primario())
+        self.btn_editar.setStyleSheet(self._btn_secundario())
+        self.btn_eliminar.setStyleSheet(self._btn_peligro())
+        self.lbl_total.setStyleSheet("color: #666; font-size: 12px;")
+
+        self.btn_agregar.clicked.connect(self._agregar_item)
+        self.btn_editar.clicked.connect(self._editar_item)
         self.btn_eliminar.clicked.connect(self._eliminar_item)
 
-        self.lbl_total = QLabel("")
-        self.lbl_total.setStyleSheet("color: #666; font-size: 12px;")
+        # Solo admin puede agregar/editar/eliminar ítems
+        if not self.es_admin:
+            self.btn_agregar.setVisible(False)
+            self.btn_editar.setVisible(False)
+            self.btn_eliminar.setVisible(False)
 
         acciones.addWidget(self.btn_agregar)
         acciones.addWidget(self.btn_editar)
@@ -112,29 +115,40 @@ class InventarioView(QWidget):
         acciones.addWidget(self.lbl_total)
         layout.addLayout(acciones)
 
-    # ── Carga de datos ─────────────────────────────────────────────────────────
+    # ── Depósitos ──────────────────────────────────────────────────────────────
 
     def _cargar_depositos(self):
-        """Crea una pestaña interna por cada depósito registrado en la BD."""
+        """Recrea las pestañas internas según los depósitos en BD."""
         self.tabs_depositos.clear()
-        depositos = self.controller.obtener_depositos()
+        depositos = self.ctrl_dep.obtener_todos()
 
         if not depositos:
-            self.tabs_depositos.addTab(QLabel("No hay depósitos registrados."), "—")
+            aviso = QLabel("No hay depósitos creados.\nUsa '🗂 Gestionar depósitos' para crear uno.")
+            aviso.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            aviso.setStyleSheet("color: #888; font-size: 14px;")
+            self.tabs_depositos.addTab(aviso, "—")
             return
 
         for dep in depositos:
-            tab = _TabDeposito(dep, self.controller)
+            tab = _TabDeposito(dep, self.ctrl_inv)
             self.tabs_depositos.addTab(tab, f"  {dep['nombre']}  ")
 
         self._actualizar_total()
 
+    def _gestionar_depositos(self):
+        """Abre el diálogo de gestión de depósitos (solo admin)."""
+        dlg = GestionDepositos(self.ctrl_dep, parent=self)
+        dlg.exec()
+        # Recargar pestañas al cerrar por si hubo cambios
+        self._cargar_depositos()
+
     def _actualizar_total(self):
-        """Muestra el total de ítems en la pestaña activa."""
         tab = self.tabs_depositos.currentWidget()
         if isinstance(tab, _TabDeposito):
             n = tab.tabla.rowCount()
             self.lbl_total.setText(f"{n} ítem(s) en este depósito")
+        else:
+            self.lbl_total.setText("")
 
     # ── Búsqueda ───────────────────────────────────────────────────────────────
 
@@ -143,17 +157,13 @@ class InventarioView(QWidget):
         if not texto:
             self._limpiar_busqueda()
             return
-
-        items = self.controller.buscar_items(texto)
-
-        # Mostrar resultados en una pestaña temporal "Resultados"
+        items = self.ctrl_inv.buscar_items(texto)
         idx = self._indice_tab("Resultados")
         if idx >= 0:
             self.tabs_depositos.removeTab(idx)
-
-        tab_resultado = _TabResultados(items)
-        self.tabs_depositos.addTab(tab_resultado, f"🔍  Resultados ({len(items)})")
-        self.tabs_depositos.setCurrentWidget(tab_resultado)
+        tab = _TabResultados(items)
+        self.tabs_depositos.addTab(tab, f"🔍  Resultados ({len(items)})")
+        self.tabs_depositos.setCurrentWidget(tab)
 
     def _limpiar_busqueda(self):
         self.input_buscar.clear()
@@ -168,44 +178,40 @@ class InventarioView(QWidget):
                 return i
         return -1
 
-    # ── Acciones ───────────────────────────────────────────────────────────────
+    # ── Acciones de ítems ──────────────────────────────────────────────────────
 
-    def _tab_activa(self) -> "_TabDeposito | None":
+    def _tab_activa(self):
         tab = self.tabs_depositos.currentWidget()
         return tab if isinstance(tab, _TabDeposito) else None
 
     def _item_seleccionado(self) -> dict | None:
         tab = self._tab_activa()
-        if tab:
-            return tab.item_seleccionado()
-        return None
+        return tab.item_seleccionado() if tab else None
 
-    def _abrir_formulario_agregar(self):
+    def _agregar_item(self):
         tab = self._tab_activa()
         if not tab:
             QMessageBox.information(self, "Aviso", "Selecciona un depósito primero.")
             return
-
-        depositos = self.controller.obtener_depositos()
+        depositos = self.ctrl_dep.obtener_todos()
         dlg = FormularioItem(depositos=depositos, deposito_actual=tab.deposito)
         if dlg.exec() == QDialog.DialogCode.Accepted:
-            ok, msg = self.controller.agregar_item(dlg.datos())
+            ok, msg = self.ctrl_inv.agregar_item(dlg.datos())
             if ok:
                 tab.recargar()
                 self._actualizar_total()
             else:
                 QMessageBox.warning(self, "Error", msg)
 
-    def _abrir_formulario_editar(self):
+    def _editar_item(self):
         item = self._item_seleccionado()
         if not item:
             QMessageBox.information(self, "Aviso", "Selecciona un ítem para editar.")
             return
-
-        depositos = self.controller.obtener_depositos()
+        depositos = self.ctrl_dep.obtener_todos()
         dlg = FormularioItem(depositos=depositos, item_existente=item)
         if dlg.exec() == QDialog.DialogCode.Accepted:
-            ok, msg = self.controller.editar_item(item["id"], dlg.datos())
+            ok, msg = self.ctrl_inv.editar_item(item["id"], dlg.datos())
             if ok:
                 tab = self._tab_activa()
                 if tab:
@@ -218,14 +224,12 @@ class InventarioView(QWidget):
         if not item:
             QMessageBox.information(self, "Aviso", "Selecciona un ítem para eliminar.")
             return
-
-        confirm = QMessageBox.question(
+        if QMessageBox.question(
             self, "Confirmar eliminación",
-            f"¿Eliminar el ítem '{item['nombre']}'?\nEsta acción no se puede deshacer.",
+            f"¿Eliminar '{item['nombre']}'?\nEsta acción no se puede deshacer.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        if confirm == QMessageBox.StandardButton.Yes:
-            ok, msg = self.controller.eliminar_item(item["id"])
+        ) == QMessageBox.StandardButton.Yes:
+            ok, msg = self.ctrl_inv.eliminar_item(item["id"])
             if ok:
                 tab = self._tab_activa()
                 if tab:
@@ -237,75 +241,250 @@ class InventarioView(QWidget):
     # ── Estilos ────────────────────────────────────────────────────────────────
 
     @staticmethod
-    def _estilo_input():
-        return """
-            QLineEdit {
-                border: 1px solid #CCC;
-                border-radius: 4px;
-                padding: 4px 10px;
-                font-size: 13px;
-            }
-            QLineEdit:focus { border: 1px solid #2E5090; }
-        """
-
-    @staticmethod
-    def _estilo_tabs_internos():
+    def _estilo_tabs():
         return """
             QTabBar::tab {
-                background: #DDE2EE;
-                color: #444;
-                padding: 8px 18px;
-                margin-right: 2px;
-                border-top-left-radius: 5px;
-                border-top-right-radius: 5px;
+                background:#DDE2EE; color:#444; padding:8px 18px;
+                margin-right:2px; border-top-left-radius:5px; border-top-right-radius:5px;
             }
-            QTabBar::tab:selected {
-                background: #4A7ACC;
-                color: white;
-                font-weight: bold;
-            }
-            QTabBar::tab:hover:!selected { background: #C5CCE0; }
+            QTabBar::tab:selected { background:#4A7ACC; color:white; font-weight:bold; }
+            QTabBar::tab:hover:!selected { background:#C5CCE0; }
         """
 
     @staticmethod
-    def _estilo_btn_accion():
-        return """
-            QPushButton {
-                background: #2E5090; color: white;
-                border-radius: 4px; padding: 0 16px; font-size: 13px;
-            }
-            QPushButton:hover   { background: #3A63B0; }
-            QPushButton:pressed { background: #1E3A6E; }
-        """
+    def _btn_primario():
+        return "QPushButton{background:#2E5090;color:white;border-radius:4px;padding:0 14px;font-size:13px;}QPushButton:hover{background:#3A63B0;}"
 
     @staticmethod
-    def _estilo_btn_peligro():
-        return """
-            QPushButton {
-                background: #C0392B; color: white;
-                border-radius: 4px; padding: 0 16px; font-size: 13px;
-            }
-            QPushButton:hover   { background: #E74C3C; }
-            QPushButton:pressed { background: #922B21; }
-        """
+    def _btn_secundario():
+        return "QPushButton{background:#EEE;color:#333;border-radius:4px;border:1px solid #CCC;padding:0 14px;font-size:13px;}QPushButton:hover{background:#DDD;}"
 
     @staticmethod
-    def _estilo_btn_secundario():
-        return """
-            QPushButton {
-                background: #EEE; color: #555;
-                border-radius: 4px; border: 1px solid #CCC; font-size: 13px;
-            }
-            QPushButton:hover { background: #DDD; }
-        """
+    def _btn_peligro():
+        return "QPushButton{background:#C0392B;color:white;border-radius:4px;padding:0 14px;font-size:13px;}QPushButton:hover{background:#E74C3C;}"
+
+    @staticmethod
+    def _btn_admin():
+        return "QPushButton{background:#6C3483;color:white;border-radius:4px;padding:0 14px;font-size:13px;}QPushButton:hover{background:#8E44AD;}"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  PESTAÑA INTERNA: tabla de un depósito
+#  DIÁLOGO: Gestión de depósitos (solo admin)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class GestionDepositos(QDialog):
+    """
+    Diálogo donde el admin puede crear, editar y eliminar depósitos.
+    El nombre es libre: 'Depósito 1', 'Lab Electrónica', 'Salón 201', etc.
+    """
+
+    def __init__(self, ctrl: DepositosController, parent=None):
+        super().__init__(parent)
+        self.ctrl = ctrl
+        self.setWindowTitle("Gestionar depósitos / espacios")
+        self.setMinimumWidth(560)
+        self.setMinimumHeight(420)
+        self.setWindowFlag(Qt.WindowType.WindowContextHelpButtonHint, False)
+        self._construir_ui()
+        self._recargar()
+
+    def _construir_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(10)
+
+        lbl = QLabel("Depósitos / Espacios de almacenamiento")
+        lbl.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+        lbl.setStyleSheet("color: #2E5090;")
+        layout.addWidget(lbl)
+
+        info = QLabel("Puedes llamarlos como quieras: Depósito, Laboratorio, Salón, Vitrina, etc.")
+        info.setStyleSheet("color: #666; font-size: 12px;")
+        layout.addWidget(info)
+
+        # Tabla de depósitos existentes
+        self.tabla = QTableWidget()
+        self.tabla.setColumnCount(4)
+        self.tabla.setHorizontalHeaderLabels(["ID", "Nombre", "Descripción", "Ítems"])
+        self.tabla.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.tabla.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.tabla.setAlternatingRowColors(True)
+        self.tabla.verticalHeader().setVisible(False)
+        self.tabla.horizontalHeader().setStretchLastSection(True)
+        self.tabla.setColumnWidth(0, 50)
+        self.tabla.setColumnWidth(1, 180)
+        self.tabla.setColumnWidth(2, 220)
+        self.tabla.setColumnWidth(3, 60)
+        self.tabla.setStyleSheet("""
+            QTableWidget{background:#FFF;color:#1A1A2E;border:1px solid #DDD;font-size:13px;}
+            QTableWidget::item:selected{background:#2E5090;color:white;}
+            QHeaderView::section{background:#2E5090;color:white;padding:6px;font-weight:bold;border:none;}
+            QTableWidget::item:alternate{background:#F0F4FF;}
+        """)
+        layout.addWidget(self.tabla)
+
+        # Botones
+        btns = QHBoxLayout()
+        self.btn_nuevo   = QPushButton("＋  Nuevo depósito")
+        self.btn_editar  = QPushButton("✏  Editar")
+        self.btn_eliminar = QPushButton("🗑  Eliminar")
+        btn_cerrar       = QPushButton("Cerrar")
+
+        self.btn_nuevo.setFixedHeight(36)
+        self.btn_editar.setFixedHeight(36)
+        self.btn_eliminar.setFixedHeight(36)
+        btn_cerrar.setFixedHeight(36)
+
+        self.btn_nuevo.setStyleSheet("QPushButton{background:#2E5090;color:white;border-radius:4px;padding:0 14px;}QPushButton:hover{background:#3A63B0;}")
+        self.btn_editar.setStyleSheet("QPushButton{background:#EEE;color:#333;border-radius:4px;border:1px solid #CCC;padding:0 14px;}QPushButton:hover{background:#DDD;}")
+        self.btn_eliminar.setStyleSheet("QPushButton{background:#C0392B;color:white;border-radius:4px;padding:0 14px;}QPushButton:hover{background:#E74C3C;}")
+        btn_cerrar.setStyleSheet("QPushButton{background:#EEE;color:#333;border-radius:4px;border:1px solid #CCC;padding:0 14px;}QPushButton:hover{background:#DDD;}")
+
+        self.btn_nuevo.clicked.connect(self._nuevo)
+        self.btn_editar.clicked.connect(self._editar)
+        self.btn_eliminar.clicked.connect(self._eliminar)
+        btn_cerrar.clicked.connect(self.accept)
+
+        btns.addWidget(self.btn_nuevo)
+        btns.addWidget(self.btn_editar)
+        btns.addWidget(self.btn_eliminar)
+        btns.addStretch()
+        btns.addWidget(btn_cerrar)
+        layout.addLayout(btns)
+
+    def _recargar(self):
+        depositos = self.ctrl.obtener_todos()
+        self.tabla.setRowCount(0)
+        for dep in depositos:
+            fila = self.tabla.rowCount()
+            self.tabla.insertRow(fila)
+            for col, valor in enumerate([
+                str(dep.get("id", "")),
+                dep.get("nombre", ""),
+                dep.get("descripcion", "") or "",
+                str(dep.get("total_items", 0)),
+            ]):
+                celda = QTableWidgetItem(valor)
+                celda.setTextAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+                self.tabla.setItem(fila, col, celda)
+
+    def _seleccionado(self) -> dict | None:
+        fila = self.tabla.currentRow()
+        if fila < 0:
+            return None
+        dep_id = int(self.tabla.item(fila, 0).text())
+        return self.ctrl.obtener_por_id(dep_id)
+
+    def _nuevo(self):
+        dlg = FormularioDeposito()
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            ok, msg = self.ctrl.agregar(dlg.datos())
+            if ok:
+                self._recargar()
+            else:
+                QMessageBox.warning(self, "Error", msg)
+
+    def _editar(self):
+        dep = self._seleccionado()
+        if not dep:
+            QMessageBox.information(self, "Aviso", "Selecciona un depósito para editar.")
+            return
+        dlg = FormularioDeposito(existente=dep)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            ok, msg = self.ctrl.editar(dep["id"], dlg.datos())
+            if ok:
+                self._recargar()
+            else:
+                QMessageBox.warning(self, "Error", msg)
+
+    def _eliminar(self):
+        dep = self._seleccionado()
+        if not dep:
+            QMessageBox.information(self, "Aviso", "Selecciona un depósito para eliminar.")
+            return
+        if QMessageBox.question(
+            self, "Confirmar",
+            f"¿Eliminar el depósito '{dep['nombre']}'?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        ) == QMessageBox.StandardButton.Yes:
+            ok, msg = self.ctrl.eliminar(dep["id"])
+            if ok:
+                self._recargar()
+            else:
+                QMessageBox.warning(self, "No se puede eliminar", msg)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  FORMULARIO: crear / editar depósito
+# ─────────────────────────────────────────────────────────────────────────────
+
+class FormularioDeposito(QDialog):
+
+    def __init__(self, existente: dict = None):
+        super().__init__()
+        self.setWindowTitle("Editar depósito" if existente else "Nuevo depósito")
+        self.setFixedWidth(400)
+        self.setWindowFlag(Qt.WindowType.WindowContextHelpButtonHint, False)
+        self._construir_ui()
+        if existente:
+            self.input_nombre.setText(existente.get("nombre", ""))
+            self.input_desc.setPlainText(existente.get("descripcion", "") or "")
+
+    def _construir_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(12)
+
+        form = QFormLayout()
+        form.setSpacing(10)
+
+        self.input_nombre = QLineEdit()
+        self.input_nombre.setFixedHeight(36)
+        self.input_nombre.setPlaceholderText("Ej: Depósito 1, Lab Electrónica, Salón 201...")
+
+        self.input_desc = QTextEdit()
+        self.input_desc.setFixedHeight(80)
+        self.input_desc.setPlaceholderText("Descripción opcional del espacio...")
+
+        form.addRow("Nombre: *",     self.input_nombre)
+        form.addRow("Descripción:",  self.input_desc)
+        layout.addLayout(form)
+
+        lbl = QLabel("* El nombre puede ser cualquier identificador del espacio.")
+        lbl.setStyleSheet("color:#888; font-size:11px;")
+        layout.addWidget(lbl)
+
+        btns = QHBoxLayout()
+        btn_c = QPushButton("Cancelar")
+        btn_g = QPushButton("Guardar")
+        btn_g.setDefault(True)
+        btn_c.clicked.connect(self.reject)
+        btn_g.clicked.connect(self._ok)
+        btn_g.setStyleSheet("QPushButton{background:#2E5090;color:white;border-radius:4px;padding:8px 20px;}QPushButton:hover{background:#3A63B0;}")
+        btns.addWidget(btn_c)
+        btns.addWidget(btn_g)
+        layout.addLayout(btns)
+
+    def _ok(self):
+        if not self.input_nombre.text().strip():
+            QMessageBox.warning(self, "Campo requerido", "El nombre del depósito es obligatorio.")
+            self.input_nombre.setFocus()
+            return
+        self.accept()
+
+    def datos(self) -> dict:
+        return {
+            "nombre":      self.input_nombre.text().strip(),
+            "descripcion": self.input_desc.toPlainText().strip(),
+        }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  PESTAÑA INTERNA: tabla de ítems de un depósito
 # ─────────────────────────────────────────────────────────────────────────────
 
 class _TabDeposito(QWidget):
-    """Widget interno que representa la tabla de un depósito."""
 
     COLUMNAS = ["ID", "Nombre", "Referencia", "Total", "Disponible", "Prestado", "Veces", "Ubicación", "Observaciones"]
 
@@ -329,29 +508,24 @@ class _TabDeposito(QWidget):
         self.tabla.setAlternatingRowColors(True)
         self.tabla.verticalHeader().setVisible(False)
         self.tabla.horizontalHeader().setStretchLastSection(True)
-        self.tabla.setStyleSheet(self._estilo_tabla())
-
-        # Anchos de columna
-        self.tabla.setColumnWidth(0, 50)   # ID
-        self.tabla.setColumnWidth(1, 220)  # Nombre
-        self.tabla.setColumnWidth(2, 120)  # Referencia
-        self.tabla.setColumnWidth(3, 70)   # Total
-        self.tabla.setColumnWidth(4, 80)   # Disponible
-        self.tabla.setColumnWidth(5, 70)   # Prestado
-        self.tabla.setColumnWidth(6, 60)   # Veces
-        self.tabla.setColumnWidth(7, 130)  # Ubicación
+        self.tabla.setStyleSheet("""
+            QTableWidget{background:#FFF;color:#1A1A2E;border:1px solid #DDD;gridline-color:#EEE;font-size:13px;}
+            QTableWidget::item:selected{background:#2E5090;color:white;}
+            QHeaderView::section{background:#2E5090;color:white;padding:6px;font-weight:bold;border:none;}
+            QTableWidget::item:alternate{background:#F0F4FF;}
+            QTableWidget::item{color:#1A1A2E;}
+        """)
+        for i, w in enumerate([50, 220, 120, 65, 80, 70, 55, 130]):
+            self.tabla.setColumnWidth(i, w)
 
         layout.addWidget(self.tabla)
 
     def recargar(self):
-        """Reconsulta la BD y actualiza la tabla."""
         items = self.controller.obtener_items_por_deposito(self.deposito["id"])
         self.tabla.setRowCount(0)
-
         for item in items:
             fila = self.tabla.rowCount()
             self.tabla.insertRow(fila)
-
             valores = [
                 str(item.get("id", "")),
                 item.get("nombre", ""),
@@ -363,50 +537,23 @@ class _TabDeposito(QWidget):
                 item.get("ubicacion", "") or "",
                 item.get("observaciones", "") or "",
             ]
-
             for col, valor in enumerate(valores):
                 celda = QTableWidgetItem(valor)
                 celda.setTextAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
-                # Colorear disponibilidad
-                if col == 4:  # Disponible
+                if col == 4:
                     disp = int(item.get("cantidad_disp", 0))
-                    if disp == 0:
-                        celda.setForeground(QColor("#C0392B"))
-                    elif disp <= 2:
-                        celda.setForeground(QColor("#E67E22"))
+                    celda.setForeground(QColor("#C0392B") if disp == 0 else
+                                        QColor("#E67E22") if disp <= 2 else
+                                        QColor("#1A1A2E"))
                 self.tabla.setItem(fila, col, celda)
 
-        log.debug(f"Tabla {self.deposito['nombre']}: {len(items)} ítems cargados.")
-
     def item_seleccionado(self) -> dict | None:
-        """Retorna el dict del ítem seleccionado en la tabla, o None."""
         fila = self.tabla.currentRow()
         if fila < 0:
             return None
-        item_id = int(self.tabla.item(fila, 0).text())
-        return self.controller.obtener_item_por_id(item_id)
-
-    @staticmethod
-    def _estilo_tabla():
-        return """
-            QTableWidget {
-                border: 1px solid #DDD;
-                gridline-color: #EEE;
-                font-size: 13px;
-            }
-            QTableWidget::item:selected {
-                background: #2E5090;
-                color: white;
-            }
-            QHeaderView::section {
-                background: #2E5090;
-                color: white;
-                padding: 6px;
-                font-weight: bold;
-                border: none;
-            }
-            QTableWidget::item:alternate { background: #F5F7FC; }
-        """
+        return self.controller.obtener_item_por_id(
+            int(self.tabla.item(fila, 0).text())
+        )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -414,7 +561,6 @@ class _TabDeposito(QWidget):
 # ─────────────────────────────────────────────────────────────────────────────
 
 class _TabResultados(QWidget):
-    """Pestaña temporal que muestra resultados de búsqueda de todos los depósitos."""
 
     COLUMNAS = ["ID", "Depósito", "Nombre", "Referencia", "Total", "Disponible", "Prestado", "Ubicación"]
 
@@ -422,7 +568,6 @@ class _TabResultados(QWidget):
         super().__init__()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 8, 4, 4)
-
         self.tabla = QTableWidget()
         self.tabla.setColumnCount(len(self.COLUMNAS))
         self.tabla.setHorizontalHeaderLabels(self.COLUMNAS)
@@ -431,24 +576,24 @@ class _TabResultados(QWidget):
         self.tabla.setAlternatingRowColors(True)
         self.tabla.verticalHeader().setVisible(False)
         self.tabla.horizontalHeader().setStretchLastSection(True)
-        self.tabla.setStyleSheet(_TabDeposito._estilo_tabla())
-
+        self.tabla.setStyleSheet("""
+            QTableWidget{background:#FFF;color:#1A1A2E;border:1px solid #DDD;font-size:13px;}
+            QTableWidget::item:selected{background:#2E5090;color:white;}
+            QHeaderView::section{background:#2E5090;color:white;padding:6px;font-weight:bold;border:none;}
+            QTableWidget::item:alternate{background:#F0F4FF;}
+            QTableWidget::item{color:#1A1A2E;}
+        """)
         self.tabla.setRowCount(0)
         for item in items:
             fila = self.tabla.rowCount()
             self.tabla.insertRow(fila)
             for col, valor in enumerate([
-                str(item.get("id", "")),
-                item.get("deposito", ""),
-                item.get("nombre", ""),
-                item.get("referencia", "") or "",
-                str(item.get("cantidad_total", 0)),
-                str(item.get("cantidad_disp", 0)),
-                str(item.get("cantidad_prest", 0)),
-                item.get("ubicacion", "") or "",
+                str(item.get("id", "")), item.get("deposito", ""),
+                item.get("nombre", ""), item.get("referencia", "") or "",
+                str(item.get("cantidad_total", 0)), str(item.get("cantidad_disp", 0)),
+                str(item.get("cantidad_prest", 0)), item.get("ubicacion", "") or "",
             ]):
                 self.tabla.setItem(fila, col, QTableWidgetItem(valor))
-
         layout.addWidget(self.tabla)
 
 
@@ -457,36 +602,30 @@ class _TabResultados(QWidget):
 # ─────────────────────────────────────────────────────────────────────────────
 
 class FormularioItem(QDialog):
-    """
-    Diálogo reutilizable para agregar o editar un ítem.
-    Si se pasa item_existente, se carga con sus datos actuales.
-    """
 
     def __init__(self, depositos: list[dict], deposito_actual: dict = None, item_existente: dict = None):
         super().__init__()
-        self._depositos      = depositos
+        self._depositos       = depositos
         self._deposito_actual = deposito_actual
-        self._item           = item_existente
-        self._modo_edicion   = item_existente is not None
+        self._item            = item_existente
+        self._modo_edicion    = item_existente is not None
+        self.setWindowTitle("Editar ítem" if self._modo_edicion else "Agregar ítem")
+        self.setFixedWidth(420)
+        self.setWindowFlag(Qt.WindowType.WindowContextHelpButtonHint, False)
         self._construir_ui()
         if self._modo_edicion:
             self._rellenar(item_existente)
 
     def _construir_ui(self):
-        titulo = "Editar ítem" if self._modo_edicion else "Agregar ítem"
-        self.setWindowTitle(titulo)
-        self.setFixedWidth(420)
-        self.setWindowFlag(Qt.WindowType.WindowContextHelpButtonHint, False)
-
         layout = QVBoxLayout(self)
-        layout.setSpacing(12)
         layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(12)
 
         form = QFormLayout()
         form.setSpacing(10)
 
-        # Depósito
         self.combo_deposito = QComboBox()
+        self.combo_deposito.setFixedHeight(34)
         for dep in self._depositos:
             self.combo_deposito.addItem(dep["nombre"], userData=dep["id"])
         if self._deposito_actual:
@@ -496,49 +635,30 @@ class FormularioItem(QDialog):
         if self._modo_edicion:
             self.combo_deposito.setEnabled(False)
 
-        # Campos de texto
-        self.input_nombre      = QLineEdit()
-        self.input_referencia  = QLineEdit()
-        self.input_ubicacion   = QLineEdit()
+        self.input_nombre     = QLineEdit(); self.input_nombre.setFixedHeight(34)
+        self.input_referencia = QLineEdit(); self.input_referencia.setFixedHeight(34)
+        self.input_ubicacion  = QLineEdit(); self.input_ubicacion.setFixedHeight(34)
+        self.spin_cantidad    = QSpinBox();  self.spin_cantidad.setFixedHeight(34)
+        self.spin_cantidad.setMinimum(0);    self.spin_cantidad.setMaximum(9999)
+        self.txt_obs          = QTextEdit(); self.txt_obs.setFixedHeight(70)
 
-        # Cantidad
-        self.spin_cantidad = QSpinBox()
-        self.spin_cantidad.setMinimum(0)
-        self.spin_cantidad.setMaximum(9999)
-
-        # Observaciones
-        self.txt_observaciones = QTextEdit()
-        self.txt_observaciones.setFixedHeight(70)
-
-        form.addRow("Depósito: *",      self.combo_deposito)
-        form.addRow("Nombre: *",        self.input_nombre)
-        form.addRow("Referencia:",      self.input_referencia)
-        form.addRow("Cantidad:",        self.spin_cantidad)
-        form.addRow("Ubicación:",       self.input_ubicacion)
-        form.addRow("Observaciones:",   self.txt_observaciones)
-
+        form.addRow("Depósito: *",    self.combo_deposito)
+        form.addRow("Nombre: *",      self.input_nombre)
+        form.addRow("Referencia:",    self.input_referencia)
+        form.addRow("Cantidad:",      self.spin_cantidad)
+        form.addRow("Ubicación:",     self.input_ubicacion)
+        form.addRow("Observaciones:", self.txt_obs)
         layout.addLayout(form)
 
-        lbl_req = QLabel("* Campos obligatorios")
-        lbl_req.setStyleSheet("color: #999; font-size: 11px;")
-        layout.addWidget(lbl_req)
+        lbl = QLabel("* Campos obligatorios")
+        lbl.setStyleSheet("color:#888; font-size:11px;")
+        layout.addWidget(lbl)
 
-        # Botones
         btns = QHBoxLayout()
-        btn_cancelar = QPushButton("Cancelar")
-        btn_cancelar.clicked.connect(self.reject)
-        self.btn_guardar = QPushButton("Guardar")
-        self.btn_guardar.setDefault(True)
-        self.btn_guardar.clicked.connect(self._validar_y_aceptar)
-        self.btn_guardar.setStyleSheet("""
-            QPushButton {
-                background: #2E5090; color: white;
-                border-radius: 4px; padding: 8px 20px;
-            }
-            QPushButton:hover { background: #3A63B0; }
-        """)
-        btns.addWidget(btn_cancelar)
-        btns.addWidget(self.btn_guardar)
+        btn_c = QPushButton("Cancelar"); btn_c.clicked.connect(self.reject)
+        btn_g = QPushButton("Guardar");  btn_g.setDefault(True); btn_g.clicked.connect(self._ok)
+        btn_g.setStyleSheet("QPushButton{background:#2E5090;color:white;border-radius:4px;padding:8px 20px;}QPushButton:hover{background:#3A63B0;}")
+        btns.addWidget(btn_c); btns.addWidget(btn_g)
         layout.addLayout(btns)
 
     def _rellenar(self, item: dict):
@@ -546,22 +666,20 @@ class FormularioItem(QDialog):
         self.input_referencia.setText(item.get("referencia", "") or "")
         self.spin_cantidad.setValue(int(item.get("cantidad_total", 0)))
         self.input_ubicacion.setText(item.get("ubicacion", "") or "")
-        self.txt_observaciones.setPlainText(item.get("observaciones", "") or "")
+        self.txt_obs.setPlainText(item.get("observaciones", "") or "")
 
-    def _validar_y_aceptar(self):
+    def _ok(self):
         if not self.input_nombre.text().strip():
             QMessageBox.warning(self, "Campo requerido", "El nombre del ítem es obligatorio.")
-            self.input_nombre.setFocus()
             return
         self.accept()
 
     def datos(self) -> dict:
-        """Retorna los datos del formulario como diccionario."""
         return {
             "deposito_id":    self.combo_deposito.currentData(),
             "nombre":         self.input_nombre.text().strip(),
             "referencia":     self.input_referencia.text().strip(),
             "cantidad_total": self.spin_cantidad.value(),
             "ubicacion":      self.input_ubicacion.text().strip(),
-            "observaciones":  self.txt_observaciones.toPlainText().strip(),
+            "observaciones":  self.txt_obs.toPlainText().strip(),
         }

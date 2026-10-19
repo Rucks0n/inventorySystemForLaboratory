@@ -1,17 +1,11 @@
 """
 app/controllers/inventario_controller.py
 -----------------------------------------
-Lógica de negocio para inventario.
-La UI llama a este controller — nunca toca la BD directamente.
+Lógica de negocio para inventario y depósitos.
 
-Métodos principales:
-    obtener_depositos()
-    obtener_items_por_deposito(deposito_id)
-    obtener_todos_los_items()
-    buscar_items(texto)
-    agregar_item(datos)
-    editar_item(item_id, datos)
-    eliminar_item(item_id)
+Clases:
+    DepositosController  — CRUD de depósitos (solo admin puede crear/editar/eliminar)
+    InventarioController — CRUD de ítems
 """
 
 from db.database          import obtener_conexion
@@ -19,45 +13,154 @@ from app.utils.logger     import log
 from app.utils            import validators
 
 
-class InventarioController:
+# ─────────────────────────────────────────────────────────────────────────────
+#  DEPÓSITOS
+# ─────────────────────────────────────────────────────────────────────────────
 
-    # ── Depósitos ──────────────────────────────────────────────────────────────
+class DepositosController:
+    """
+    CRUD de depósitos/espacios de almacenamiento.
+    El admin puede crear depósitos con cualquier nombre:
+    'Depósito 1', 'Laboratorio A', 'Salón 201', 'Vitrina', etc.
+    """
 
-    def obtener_depositos(self) -> list[dict]:
-        """Retorna todos los depósitos registrados."""
-        try:
-            conn   = obtener_conexion()
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM depositos ORDER BY nombre")
-            resultado = [dict(r) for r in cursor.fetchall()]
-            conn.close()
-            return resultado
-        except Exception as e:
-            log.error(f"obtener_depositos: {e}")
-            return []
-
-    # ── Ítems ──────────────────────────────────────────────────────────────────
-
-    def obtener_items_por_deposito(self, deposito_id: int) -> list[dict]:
-        """
-        Retorna todos los ítems de un depósito específico.
-        Incluye el nombre del depósito para mostrarlo en la tabla.
-        """
+    def obtener_todos(self) -> list[dict]:
+        """Retorna todos los depósitos con su conteo de ítems."""
         try:
             conn   = obtener_conexion()
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT
-                    i.id,
-                    i.nombre,
-                    i.referencia,
-                    i.cantidad_total,
-                    i.cantidad_disp,
-                    i.cantidad_prest,
-                    i.veces_prestado,
-                    i.ubicacion,
-                    i.observaciones,
-                    d.nombre AS deposito
+                SELECT d.id, d.nombre, d.descripcion,
+                       COUNT(i.id) AS total_items
+                FROM   depositos d
+                LEFT JOIN items i ON i.deposito_id = d.id
+                GROUP  BY d.id
+                ORDER  BY d.nombre COLLATE NOCASE
+            """)
+            resultado = [dict(r) for r in cursor.fetchall()]
+            conn.close()
+            return resultado
+        except Exception as e:
+            log.error(f"DepositosController.obtener_todos: {e}")
+            return []
+
+    def obtener_por_id(self, deposito_id: int) -> dict | None:
+        try:
+            conn   = obtener_conexion()
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM depositos WHERE id = ?", (deposito_id,))
+            fila = cursor.fetchone()
+            conn.close()
+            return dict(fila) if fila else None
+        except Exception as e:
+            log.error(f"DepositosController.obtener_por_id: {e}")
+            return None
+
+    def agregar(self, datos: dict) -> tuple[bool, str]:
+        """
+        Crea un depósito nuevo.
+        datos: nombre (obligatorio), descripcion (opcional)
+        """
+        ok, msg = validators.formulario({"Nombre": datos.get("nombre")})
+        if not ok:
+            return False, msg
+
+        ok, msg = validators.longitud(datos.get("nombre", ""), "Nombre", 2, 100)
+        if not ok:
+            return False, msg
+
+        try:
+            conn   = obtener_conexion()
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO depositos (nombre, descripcion) VALUES (?, ?)
+            """, (
+                str(datos["nombre"]).strip(),
+                str(datos.get("descripcion", "") or "").strip() or None,
+            ))
+            conn.commit()
+            conn.close()
+            log.info(f"Depósito creado: '{datos['nombre']}'")
+            return True, ""
+        except Exception as e:
+            if "UNIQUE" in str(e):
+                return False, f"Ya existe un depósito llamado '{datos['nombre']}'."
+            log.error(f"DepositosController.agregar: {e}")
+            return False, str(e)
+
+    def editar(self, deposito_id: int, datos: dict) -> tuple[bool, str]:
+        """Actualiza nombre y descripción."""
+        ok, msg = validators.formulario({"Nombre": datos.get("nombre")})
+        if not ok:
+            return False, msg
+
+        try:
+            conn   = obtener_conexion()
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE depositos SET nombre = ?, descripcion = ? WHERE id = ?
+            """, (
+                str(datos["nombre"]).strip(),
+                str(datos.get("descripcion", "") or "").strip() or None,
+                deposito_id,
+            ))
+            conn.commit()
+            conn.close()
+            log.info(f"Depósito {deposito_id} actualizado.")
+            return True, ""
+        except Exception as e:
+            if "UNIQUE" in str(e):
+                return False, "Ya existe un depósito con ese nombre."
+            log.error(f"DepositosController.editar: {e}")
+            return False, str(e)
+
+    def eliminar(self, deposito_id: int) -> tuple[bool, str]:
+        """
+        Elimina solo si no tiene ítems asociados.
+        Protege la integridad del inventario.
+        """
+        try:
+            conn   = obtener_conexion()
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT COUNT(*) AS total FROM items WHERE deposito_id = ?",
+                (deposito_id,)
+            )
+            total = cursor.fetchone()["total"]
+            if total > 0:
+                conn.close()
+                return False, (
+                    f"No se puede eliminar: el depósito tiene {total} ítem(s).\n"
+                    "Primero elimina o mueve los ítems."
+                )
+            cursor.execute("DELETE FROM depositos WHERE id = ?", (deposito_id,))
+            conn.commit()
+            conn.close()
+            log.info(f"Depósito {deposito_id} eliminado.")
+            return True, ""
+        except Exception as e:
+            log.error(f"DepositosController.eliminar: {e}")
+            return False, str(e)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  ÍTEMS
+# ─────────────────────────────────────────────────────────────────────────────
+
+class InventarioController:
+
+    def obtener_depositos(self) -> list[dict]:
+        return DepositosController().obtener_todos()
+
+    def obtener_items_por_deposito(self, deposito_id: int) -> list[dict]:
+        try:
+            conn   = obtener_conexion()
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT i.id, i.nombre, i.referencia,
+                       i.cantidad_total, i.cantidad_disp, i.cantidad_prest,
+                       i.veces_prestado, i.ubicacion, i.observaciones,
+                       d.nombre AS deposito
                 FROM   items i
                 JOIN   depositos d ON d.id = i.deposito_id
                 WHERE  i.deposito_id = ?
@@ -67,20 +170,15 @@ class InventarioController:
             conn.close()
             return resultado
         except Exception as e:
-            log.error(f"obtener_items_por_deposito({deposito_id}): {e}")
+            log.error(f"InventarioController.obtener_items_por_deposito: {e}")
             return []
 
     def obtener_todos_los_items(self) -> list[dict]:
-        """Retorna todos los ítems de todos los depósitos."""
         try:
             conn   = obtener_conexion()
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT
-                    i.id, i.nombre, i.referencia,
-                    i.cantidad_total, i.cantidad_disp, i.cantidad_prest,
-                    i.veces_prestado, i.ubicacion, i.observaciones,
-                    d.nombre AS deposito
+                SELECT i.*, d.nombre AS deposito
                 FROM   items i
                 JOIN   depositos d ON d.id = i.deposito_id
                 ORDER  BY d.nombre, i.nombre COLLATE NOCASE
@@ -89,11 +187,10 @@ class InventarioController:
             conn.close()
             return resultado
         except Exception as e:
-            log.error(f"obtener_todos_los_items: {e}")
+            log.error(f"InventarioController.obtener_todos_los_items: {e}")
             return []
 
     def obtener_item_por_id(self, item_id: int) -> dict | None:
-        """Retorna un ítem por su ID, o None si no existe."""
         try:
             conn   = obtener_conexion()
             cursor = conn.cursor()
@@ -107,14 +204,10 @@ class InventarioController:
             conn.close()
             return dict(fila) if fila else None
         except Exception as e:
-            log.error(f"obtener_item_por_id({item_id}): {e}")
+            log.error(f"InventarioController.obtener_item_por_id: {e}")
             return None
 
     def buscar_items(self, texto: str) -> list[dict]:
-        """
-        Búsqueda por nombre o referencia en todos los depósitos.
-        No sensible a mayúsculas.
-        """
         try:
             conn   = obtener_conexion()
             cursor = conn.cursor()
@@ -123,33 +216,17 @@ class InventarioController:
                 SELECT i.*, d.nombre AS deposito
                 FROM   items i
                 JOIN   depositos d ON d.id = i.deposito_id
-                WHERE  i.nombre     LIKE ? OR
-                       i.referencia LIKE ?
+                WHERE  i.nombre LIKE ? OR i.referencia LIKE ?
                 ORDER  BY i.nombre COLLATE NOCASE
             """, (patron, patron))
             resultado = [dict(r) for r in cursor.fetchall()]
             conn.close()
             return resultado
         except Exception as e:
-            log.error(f"buscar_items('{texto}'): {e}")
+            log.error(f"InventarioController.buscar_items: {e}")
             return []
 
-    # ── CRUD ───────────────────────────────────────────────────────────────────
-
     def agregar_item(self, datos: dict) -> tuple[bool, str]:
-        """
-        Agrega un ítem nuevo al inventario.
-
-        datos esperado:
-            deposito_id   (int, obligatorio)
-            nombre        (str, obligatorio)
-            referencia    (str, opcional)
-            cantidad_total(int, >= 0)
-            ubicacion     (str, opcional)
-            observaciones (str, opcional)
-
-        Retorna (True, "") o (False, "mensaje de error").
-        """
         ok, msg = validators.formulario({
             "Nombre":   datos.get("nombre"),
             "Depósito": datos.get("deposito_id"),
@@ -174,8 +251,7 @@ class InventarioController:
                 int(datos["deposito_id"]),
                 str(datos["nombre"]).strip(),
                 str(datos.get("referencia", "") or "").strip() or None,
-                cantidad,
-                cantidad,
+                cantidad, cantidad,
                 str(datos.get("ubicacion", "") or "").strip() or None,
                 str(datos.get("observaciones", "") or "").strip() or None,
             ))
@@ -184,14 +260,10 @@ class InventarioController:
             log.info(f"Ítem agregado: '{datos['nombre']}'")
             return True, ""
         except Exception as e:
-            log.error(f"agregar_item: {e}")
+            log.error(f"InventarioController.agregar_item: {e}")
             return False, str(e)
 
     def editar_item(self, item_id: int, datos: dict) -> tuple[bool, str]:
-        """
-        Actualiza nombre, referencia, cantidad total, ubicación y observaciones.
-        No modifica cantidad_disp ni cantidad_prest directamente.
-        """
         ok, msg = validators.formulario({"Nombre": datos.get("nombre")})
         if not ok:
             return False, msg
@@ -203,11 +275,8 @@ class InventarioController:
         try:
             conn   = obtener_conexion()
             cursor = conn.cursor()
-
-            # Obtener el ítem actual para recalcular disponibilidad
             cursor.execute(
-                "SELECT cantidad_total, cantidad_prest FROM items WHERE id = ?",
-                (item_id,)
+                "SELECT cantidad_prest FROM items WHERE id = ?", (item_id,)
             )
             actual = cursor.fetchone()
             if not actual:
@@ -219,18 +288,14 @@ class InventarioController:
 
             cursor.execute("""
                 UPDATE items SET
-                    nombre         = ?,
-                    referencia     = ?,
-                    cantidad_total = ?,
-                    cantidad_disp  = ?,
-                    ubicacion      = ?,
-                    observaciones  = ?
+                    nombre = ?, referencia = ?,
+                    cantidad_total = ?, cantidad_disp = ?,
+                    ubicacion = ?, observaciones = ?
                 WHERE id = ?
             """, (
                 str(datos["nombre"]).strip(),
                 str(datos.get("referencia", "") or "").strip() or None,
-                nueva_cantidad,
-                nueva_disp,
+                nueva_cantidad, nueva_disp,
                 str(datos.get("ubicacion", "") or "").strip() or None,
                 str(datos.get("observaciones", "") or "").strip() or None,
                 item_id,
@@ -240,33 +305,25 @@ class InventarioController:
             log.info(f"Ítem {item_id} actualizado.")
             return True, ""
         except Exception as e:
-            log.error(f"editar_item({item_id}): {e}")
+            log.error(f"InventarioController.editar_item: {e}")
             return False, str(e)
 
     def eliminar_item(self, item_id: int) -> tuple[bool, str]:
-        """
-        Elimina un ítem del inventario.
-        Falla si el ítem tiene préstamos activos (para no perder historial).
-        """
         try:
             conn   = obtener_conexion()
             cursor = conn.cursor()
-
             cursor.execute("""
                 SELECT COUNT(*) AS total FROM prestamos
                 WHERE  item_id = ? AND estado = 'activo'
             """, (item_id,))
-            activos = cursor.fetchone()["total"]
-
-            if activos > 0:
+            if cursor.fetchone()["total"] > 0:
                 conn.close()
-                return False, f"No se puede eliminar: el ítem tiene {activos} préstamo(s) activo(s)."
-
+                return False, "No se puede eliminar: el ítem tiene préstamos activos."
             cursor.execute("DELETE FROM items WHERE id = ?", (item_id,))
             conn.commit()
             conn.close()
             log.info(f"Ítem {item_id} eliminado.")
             return True, ""
         except Exception as e:
-            log.error(f"eliminar_item({item_id}): {e}")
+            log.error(f"InventarioController.eliminar_item: {e}")
             return False, str(e)
