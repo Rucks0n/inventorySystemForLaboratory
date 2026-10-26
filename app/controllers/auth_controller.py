@@ -12,7 +12,7 @@ Uso:
 """
 
 import hashlib
-from db.database          import obtener_conexion
+from db.database          import conexion
 from app.utils.logger     import log
 from config.constants     import ROL_ADMIN
 
@@ -37,24 +37,23 @@ class AuthController:
             None si son incorrectas o el usuario está inactivo.
         """
         try:
-            conn   = obtener_conexion()
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT id, nombre, codigo, correo, rol
-                FROM   usuarios
-                WHERE  codigo     = ?
-                  AND  contrasena = ?
-                  AND  activo     = 1
-            """, (str(codigo).strip(), _hash(contrasena)))
-            fila = cursor.fetchone()
-            conn.close()
+            with conexion() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT id, nombre, codigo, correo, rol
+                    FROM   usuarios
+                    WHERE  codigo     = ?
+                      AND  contrasena = ?
+                      AND  activo     = 1
+                """, (str(codigo).strip(), _hash(contrasena)))
+                fila = cursor.fetchone()
 
-            if fila:
-                log.info(f"Login exitoso: {codigo} (rol={fila['rol']})")
-                return dict(fila)
+                if fila:
+                    log.info(f"Login exitoso: {codigo} (rol={fila['rol']})")
+                    return dict(fila)
 
-            log.warning(f"Login fallido: {codigo}")
-            return None
+                log.warning(f"Login fallido: {codigo}")
+                return None
 
         except Exception as e:
             log.error(f"AuthController.login: {e}")
@@ -78,22 +77,21 @@ class AuthController:
             return False, "Nombre, código y contraseña son obligatorios."
 
         try:
-            conn   = obtener_conexion()
-            cursor = conn.cursor()
-            cursor.execute("""
-                INSERT OR IGNORE INTO usuarios
-                    (nombre, codigo, contrasena, rol, activo)
-                VALUES (?, ?, ?, ?, 1)
-            """, (
-                str(nombre).strip(),
-                str(codigo).strip(),
-                _hash(contrasena),
-                str(rol),
-            ))
-            conn.commit()
-            conn.close()
-            log.info(f"Usuario de sistema creado: {codigo} (rol={rol})")
-            return True, ""
+            with conexion() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT OR IGNORE INTO usuarios
+                        (nombre, codigo, contrasena, rol, activo)
+                    VALUES (?, ?, ?, ?, 1)
+                """, (
+                    str(nombre).strip(),
+                    str(codigo).strip(),
+                    _hash(contrasena),
+                    str(rol),
+                ))
+                conn.commit()
+                log.info(f"Usuario de sistema creado: {codigo} (rol={rol})")
+                return True, ""
         except Exception as e:
             if "UNIQUE" in str(e):
                 return False, f"El código '{codigo}' ya está registrado."
@@ -115,27 +113,25 @@ class AuthController:
             return False, "La nueva contraseña debe tener al menos 6 caracteres."
 
         try:
-            conn   = obtener_conexion()
-            cursor = conn.cursor()
+            with conexion() as conn:
+                cursor = conn.cursor()
 
-            # Verificar contraseña actual
-            cursor.execute("""
-                SELECT id FROM usuarios
-                WHERE  id = ? AND contrasena = ?
-            """, (usuario_id, _hash(contrasena_actual)))
+                # Verificar contraseña actual
+                cursor.execute("""
+                    SELECT id FROM usuarios
+                    WHERE  id = ? AND contrasena = ?
+                """, (usuario_id, _hash(contrasena_actual)))
 
-            if not cursor.fetchone():
-                conn.close()
-                return False, "La contraseña actual no es correcta."
+                if not cursor.fetchone():
+                    return False, "La contraseña actual no es correcta."
 
-            cursor.execute("""
-                UPDATE usuarios SET contrasena = ? WHERE id = ?
-            """, (_hash(nueva_contrasena), usuario_id))
+                cursor.execute("""
+                    UPDATE usuarios SET contrasena = ? WHERE id = ?
+                """, (_hash(nueva_contrasena), usuario_id))
 
-            conn.commit()
-            conn.close()
-            log.info(f"Contraseña actualizada para usuario {usuario_id}.")
-            return True, ""
+                conn.commit()
+                log.info(f"Contraseña actualizada para usuario {usuario_id}.")
+                return True, ""
 
         except Exception as e:
             log.error(f"AuthController.cambiar_contrasena: {e}")

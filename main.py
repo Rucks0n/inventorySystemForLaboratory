@@ -4,7 +4,7 @@ main.py
 Punto de entrada del sistema. Solo orquesta — no contiene lógica de negocio.
 
 Orden de arranque:
-    1. Ejecuta la migración (crea tablas si no existen — seguro de repetir)
+    1. Aplica las migraciones pendientes de la base (seguro de repetir)
     2. Crea el usuario admin por defecto en la primera ejecución
     3. Muestra la pantalla de login
     4. Si el login es exitoso, abre la ventana principal con pestañas
@@ -16,7 +16,8 @@ from PyQt6.QtWidgets import QApplication, QMessageBox
 from config.settings import APP_NOMBRE
 
 # ── Migraciones ────────────────────────────────────────────────────────────────
-from db.migrations.migration_001 import ejecutar as migrar
+# Aplica los cambios de la base que falten (ver db/migraciones.py)
+from db.migraciones import aplicar_pendientes as migrar
 
 # ── Auth ───────────────────────────────────────────────────────────────────────
 from app.controllers.auth_controller import AuthController

@@ -10,6 +10,7 @@ build/
 
 # Base de datos (no subir — cada equipo tiene la suya)
 db/*.db
+db/respaldos/
 
 # Logs generados
 logs/*.log

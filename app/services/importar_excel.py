@@ -1,21 +1,23 @@
 """
 app/services/importar_excel.py
 -------------------------------
-Importa los datos históricos de los archivos Excel originales a SQLite.
+Importa los datos HISTÓRICOS de los Excel originales a SQLite (docentes y movimientos).
+
+Los ÍTEMS del inventario ya NO se importan aquí: se cargan desde la app, en
+Inventario → «Importar inventario» (ver app/services/importador/), que acepta
+cualquier orden de columnas, varios depósitos y archivos muy grandes.
 
 Archivos origen (colocar en data/ antes de ejecutar):
-    inventario.xlsx  →  ítems por depósito + lista de docentes
+    inventario.xlsx  →  lista de docentes
     gestion.xlsx     →  movimientos históricos
 
 Orden de ejecución (importante respetar dependencias):
-    1. importar_docentes()    — docentes primero, los movimientos los referencian
-    2. importar_depositos()   — ítems por depósito
+    1. Importar el inventario desde la app (los movimientos buscan los ítems por nombre)
+    2. importar_docentes()    — docentes primero, los movimientos los referencian
     3. importar_movimientos() — historial (requiere items y docentes ya cargados)
 
 Uso desde consola (solo se hace una vez en la migración inicial):
     python app/services/importar_excel.py
-
-También puede llamarse desde la UI: Configuración → Importar datos históricos.
 """
 
 import sys
@@ -29,10 +31,7 @@ import openpyxl
 from db.database      import obtener_conexion
 from app.utils.logger import log
 from config.settings  import EXCEL_INVENTARIO, EXCEL_GESTION
-from config.constants import (
-    HOJAS_DEPOSITOS, HOJA_DOCENTES,
-    HOJA_MOVIMIENTOS,
-)
+from config.constants import HOJA_DOCENTES, HOJA_MOVIMIENTOS
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -113,84 +112,6 @@ def importar_docentes() -> int:
 
     log.info(f"Docentes importados: {total}")
     print(f"  ✔  {total} docentes importados.")
-    return total
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  DEPÓSITOS / ÍTEMS  (hojas Depósito1, 2, 3 de inventario.xlsx)
-# ─────────────────────────────────────────────────────────────────────────────
-
-def importar_depositos() -> int:
-    """
-    Lee las hojas Depósito1, Depósito2, Depósito3 de inventario.xlsx.
-    Columnas esperadas: ID Item | Item | Referencia | Cantidad | Ubicación | Observaciones
-
-    Retorna el total de ítems importados.
-    """
-    if not _verificar_archivo(EXCEL_INVENTARIO):
-        return 0
-
-    conn   = obtener_conexion()
-    cursor = conn.cursor()
-    total  = 0
-
-    wb = openpyxl.load_workbook(EXCEL_INVENTARIO, read_only=True, data_only=True)
-
-    for nombre_hoja in HOJAS_DEPOSITOS:
-        if nombre_hoja not in wb.sheetnames:
-            log.warning(f"Hoja '{nombre_hoja}' no encontrada — se omite.")
-            continue
-
-        # Obtener el id del depósito ya insertado en la migración
-        cursor.execute("SELECT id FROM depositos WHERE nombre = ?", (nombre_hoja,))
-        fila_dep = cursor.fetchone()
-        if not fila_dep:
-            log.warning(f"Depósito '{nombre_hoja}' no registrado en BD — se omite.")
-            continue
-        deposito_id = fila_dep["id"]
-
-        ws = wb[nombre_hoja]
-        subtotal = 0
-
-        for i, row in enumerate(ws.iter_rows(values_only=True)):
-            if i == 0:
-                continue                    # saltar encabezado
-            # Columnas: ID | Nombre | Referencia | Cantidad | Ubicación | Observaciones
-            _, nombre, referencia, cantidad, ubicacion, observaciones = (
-                list(row) + [None] * 6
-            )[:6]
-
-            nombre = _str(nombre)
-            if not nombre:
-                continue
-
-            cant = _int(cantidad, 0)
-
-            cursor.execute("""
-                INSERT INTO items
-                    (deposito_id, nombre, referencia, cantidad_total,
-                     cantidad_disp, ubicacion, observaciones)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (
-                deposito_id,
-                nombre,
-                _str(referencia),
-                cant,
-                cant,           # al importar, todo está disponible
-                _str(ubicacion),
-                _str(observaciones),
-            ))
-            subtotal += 1
-
-        log.info(f"{nombre_hoja}: {subtotal} ítems importados.")
-        print(f"  ✔  {nombre_hoja}: {subtotal} ítems.")
-        total += subtotal
-
-    conn.commit()
-    conn.close()
-    wb.close()
-
-    log.info(f"Total ítems importados: {total}")
     return total
 
 
@@ -301,14 +222,12 @@ def importar_movimientos() -> int:
 
 def importar_todo():
     """
-    Ejecuta la importación completa en el orden correcto.
-    Llama solo una vez durante la migración inicial.
+    Importa docentes y movimientos históricos, en ese orden.
+    Llamar solo una vez durante la migración inicial, y DESPUÉS de importar el
+    inventario desde la app (los movimientos buscan los ítems por nombre).
     """
     print("\n─── Importando docentes ────────────────────────────")
     importar_docentes()
-
-    print("\n─── Importando ítems de depósitos ──────────────────")
-    importar_depositos()
 
     print("\n─── Importando movimientos históricos ──────────────")
     importar_movimientos()

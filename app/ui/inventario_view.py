@@ -18,6 +18,7 @@ from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui  import QFont, QColor
 
 from app.controllers.inventario_controller import InventarioController, DepositosController
+from app.ui.importar                        import ImportarDialog
 from app.utils.logger                       import log
 from config.constants                       import ROL_ADMIN
 
@@ -66,7 +67,7 @@ class InventarioView(QWidget):
         barra.addWidget(self.input_buscar)
         barra.addWidget(btn_limpiar)
 
-        # Panel de depósitos (solo admin)
+        # Depósitos e importación (solo admin)
         if self.es_admin:
             barra.addSpacing(16)
             btn_depositos = QPushButton("🗂  Gestionar depósitos")
@@ -74,6 +75,12 @@ class InventarioView(QWidget):
             btn_depositos.setStyleSheet(self._btn_admin())
             btn_depositos.clicked.connect(self._gestionar_depositos)
             barra.addWidget(btn_depositos)
+
+            btn_importar = QPushButton("📥  Importar inventario")
+            btn_importar.setFixedHeight(34)
+            btn_importar.setStyleSheet(self._btn_admin())
+            btn_importar.clicked.connect(self._importar_inventario)
+            barra.addWidget(btn_importar)
 
         layout.addLayout(barra)
 
@@ -141,6 +148,13 @@ class InventarioView(QWidget):
         dlg.exec()
         # Recargar pestañas al cerrar por si hubo cambios
         self._cargar_depositos()
+
+    def _importar_inventario(self):
+        """Abre el asistente de importación desde Excel/CSV (solo admin)."""
+        dlg = ImportarDialog(parent=self)
+        dlg.exec()
+        if dlg.hubo_cambios:
+            self._cargar_depositos()
 
     def _actualizar_total(self):
         tab = self.tabs_depositos.currentWidget()

@@ -8,8 +8,31 @@ Nunca escribas rutas o conexiones directas en otros módulos.
 
 import sqlite3
 import os
+from contextlib import contextmanager
 from config.settings  import DB_RUTA
 from app.utils.logger import log
+
+
+@contextmanager
+def conexion():
+    """
+    Abre una conexión y la CIERRA SIEMPRE, aunque algo falle a mitad de camino.
+    Es la forma de usar la base de datos en controllers y services:
+
+        with conexion() as conn:
+            conn.execute("UPDATE ...")
+            conn.commit()      # solo si hubo INSERT / UPDATE / DELETE
+
+    Si algo falla antes del commit, lo que quedó a medias se descarta.
+
+    ¿Por qué importa? Una conexión que se queda abierta con una escritura a medias
+    BLOQUEA la base: todo lo demás falla con «database is locked» hasta cerrar el programa.
+    """
+    conn = obtener_conexion()
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 def obtener_conexion() -> sqlite3.Connection:
@@ -17,12 +40,8 @@ def obtener_conexion() -> sqlite3.Connection:
     Retorna una conexión activa a la base de datos SQLite.
     Crea el archivo .db automáticamente si no existe.
 
-    Uso estándar en cualquier controller o service:
-        conn   = obtener_conexion()
-        cursor = conn.cursor()
-        cursor.execute(...)
-        conn.commit()   # solo si hubo INSERT / UPDATE / DELETE
-        conn.close()
+    Prefiere `with conexion() as conn:` (más arriba): cierra sola. Si usas esta función
+    directamente, TÚ debes cerrar la conexión, también cuando hay un error (try/finally).
 
     Retorna:
         sqlite3.Connection con row_factory = sqlite3.Row

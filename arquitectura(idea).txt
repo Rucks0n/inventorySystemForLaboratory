@@ -9,6 +9,7 @@ inventorySystemForLaboratory/
 │   │   ├── login_window.py         # Pantalla de autenticación
 │   │   ├── inventario_view.py      # Vista de inventario
 │   │   ├── reportes_view.py        # Vista de reportes
+│   │   ├── importar/               # Asistente de importación (un archivo por paso)
 │   │   └── components/             # Widgets reutilizables (tablas, botones)
 │   │       └── tabla_productos.py
 │   │
@@ -26,7 +27,8 @@ inventorySystemForLaboratory/
 │   │
 │   ├── services/                   # Lógica de negocio pura
 │   │   ├── __init__.py
-│   │   ├── excel_service.py        # Importar / exportar Excel
+│   │   ├── excel_service.py        # Exportar Excel
+│   │   ├── importador/             # Importar inventarios: leer → mapear → revisar → guardar
 │   │   └── reporte_service.py      # Generar reportes / estadísticas
 │   │
 │   └── utils/                      # Utilidades compartidas
@@ -36,8 +38,10 @@ inventorySystemForLaboratory/
 │
 ├── db/                             # Base de datos y migraciones
 │   ├── database.py                 # Conexión y configuración SQLite
-│   ├── migrations/                 # Scripts de creación de tablas
-│   │   └── 001_initial.py
+│   ├── migraciones.py              # Aplica las migraciones pendientes, en orden
+│   ├── migrations/                 # Un archivo por cambio (migration_001.py, 002, ...)
+│   ├── respaldos.py                # Copias de seguridad automáticas
+│   ├── respaldos/                  # Las copias generadas (no subir a git)
 │   └── inventario.db               # Archivo SQLite generado (no subir a git)
 │
 ├── assets/                         # Recursos visuales
@@ -46,14 +50,11 @@ inventorySystemForLaboratory/
 │   └── styles/                     # Hojas de estilo Qt (.qss)
 │       └── theme.qss
 │
-├── data/                           # Archivos Excel de entrada/plantillas
-│   ├── plantilla_productos.xlsx    # Plantilla editable por el usuario
-│   └── ejemplos/
-│
-├── tests/                          # Tests automatizados
-│   ├── test_inventario.py
-│   ├── test_excel_service.py
-│   └── test_auth.py
+├── tests/                          # Pruebas automáticas (python -m unittest discover -s tests -t .)
+│   ├── base_prueba.py              # Base de datos temporal para cada prueba
+│   ├── test_migraciones.py
+│   ├── test_tipos.py
+│   └── test_importador_*.py
 │
 ├── config/
 │   ├── settings.py                 # Configuración central (rutas, versión)

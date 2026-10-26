@@ -21,13 +21,27 @@ MOV_SALIDA     = "Salida"
 MOV_DEVOLUCION = "Devolución"
 MOV_ENTRADA    = "Entrada"
 
-# ── Hojas del Excel inventario.xlsx ───────────────────────────────────────────
+# ── Comportamiento de los tipos de ítem ───────────────────────────────────────
+# Cada tipo (Herramienta, Consumible, ...) se comporta de una de estas dos formas
+COMP_PRESTA  = "presta"      # se presta y se devuelve
+COMP_CONSUME = "consume"     # se gasta y se descuenta
+COMPORTAMIENTOS_VALIDOS = [COMP_PRESTA, COMP_CONSUME]
+
+# ── Importador de inventario (Excel / CSV) ────────────────────────────────────
+# Cómo se reparten los ítems del archivo entre los depósitos
+IMP_DEPOSITO_POR_HOJA    = "hojas"      # cada hoja del Excel es un depósito
+IMP_DEPOSITO_POR_COLUMNA = "columna"    # una columna del Excel dice el depósito
+IMP_DEPOSITO_UNICO       = "unico"      # todo el archivo va a un solo depósito
+# Qué hacer con los ítems que ya existen en la base
+IMP_DUP_OMITIR     = "omitir"           # se dejan como están (lo más seguro)
+IMP_DUP_ACTUALIZAR = "actualizar"       # se actualizan con los datos del archivo
+# Gravedad de los problemas encontrados en el archivo
+IMP_ERROR = "error"                     # la fila NO se importa
+IMP_AVISO = "aviso"                     # la fila se importa, pero conviene revisarla
+
+# ── Hoja de docentes del Excel inventario.xlsx (importación histórica) ────────
 # Si el Excel cambia de nombre de hoja, solo se actualiza aquí
-HOJA_DEPOSITO1 = "Depósito1"
-HOJA_DEPOSITO2 = "Depósito2"
-HOJA_DEPOSITO3 = "Depósito3"
 HOJA_DOCENTES  = "Docente"
-HOJAS_DEPOSITOS = [HOJA_DEPOSITO1, HOJA_DEPOSITO2, HOJA_DEPOSITO3]
 
 # ── Hojas del Excel gestion.xlsx ──────────────────────────────────────────────
 HOJA_INVENTARIO  = "Inventario"
