@@ -149,6 +149,19 @@ class InventarioView(QWidget):
         # Recargar pestañas al cerrar por si hubo cambios
         self._cargar_depositos()
 
+    def actualizar(self):
+        """
+        Vuelve a leer las cantidades (MainWindow lo llama al entrar a esta pestaña, por
+        ejemplo después de registrar un préstamo en la pestaña de Préstamos).
+        """
+        for i in range(self.tabs_depositos.count()):
+            tab = self.tabs_depositos.widget(i)
+            if isinstance(tab, _TabDeposito):
+                tab.recargar()
+        if self.tabs_depositos.currentIndex() == self._indice_tab("Resultados"):
+            self._buscar()                      # la búsqueda activa también se refresca
+        self._actualizar_total()
+
     def _importar_inventario(self):
         """Abre el asistente de importación desde Excel/CSV (solo admin)."""
         dlg = ImportarDialog(parent=self)
@@ -238,9 +251,12 @@ class InventarioView(QWidget):
         if not item:
             QMessageBox.information(self, "Aviso", "Selecciona un ítem para eliminar.")
             return
+        historial = self.ctrl_inv.contar_historial(item["id"])
+        aviso = (f"\n\nTiene {historial} movimiento(s) en el historial: el historial se conserva "
+                 "y el ítem aparecerá marcado como eliminado." if historial else "")
         if QMessageBox.question(
             self, "Confirmar eliminación",
-            f"¿Eliminar '{item['nombre']}'?\nEsta acción no se puede deshacer.",
+            f"¿Eliminar '{item['nombre']}'?\nEsta acción no se puede deshacer.{aviso}",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         ) == QMessageBox.StandardButton.Yes:
             ok, msg = self.ctrl_inv.eliminar_item(item["id"])

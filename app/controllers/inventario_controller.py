@@ -290,11 +290,21 @@ class InventarioController:
             log.error(f"InventarioController.editar_item: {e}")
             return False, str(e)
 
+    def contar_historial(self, item_id: int) -> int:
+        """Cuántos movimientos del historial tiene el ítem (para avisar antes de eliminarlo)."""
+        try:
+            with conexion() as conn:
+                return conn.execute("SELECT COUNT(*) FROM movimientos WHERE item_id = ?",
+                                    (item_id,)).fetchone()[0]
+        except Exception as e:
+            log.error(f"InventarioController.contar_historial: {e}")
+            return 0
+
     def eliminar_item(self, item_id: int) -> tuple[bool, str]:
         """
-        Elimina un ítem solo si no tiene préstamos activos NI historial.
-        El historial (préstamos, devoluciones, movimientos) apunta al ítem; borrarlo lo
-        dejaría incompleto, así que en ese caso se explica y no se borra.
+        Elimina un ítem. Solo se impide si tiene préstamos ACTIVOS (hay que devolverlos primero).
+        Si tiene historial, el historial se conserva: la base guarda el nombre del ítem en cada
+        movimiento y el historial lo muestra marcado como eliminado (ver migration_004.py).
         """
         try:
             with conexion() as conn:
@@ -307,18 +317,6 @@ class InventarioController:
                     (item_id, PRESTAMO_ACTIVO)).fetchone()[0]
                 if activos:
                     return False, "No se puede eliminar: el ítem tiene préstamos activos."
-
-                historial = conn.execute("""
-                    SELECT (SELECT COUNT(*) FROM prestamos    WHERE item_id = :id)
-                         + (SELECT COUNT(*) FROM devoluciones WHERE item_id = :id)
-                         + (SELECT COUNT(*) FROM movimientos  WHERE item_id = :id)
-                """, {"id": item_id}).fetchone()[0]
-                if historial:
-                    return False, (
-                        f"No se puede eliminar «{item['nombre']}»: tiene historial de préstamos "
-                        f"({historial} registros) y borrarlo dejaría ese historial incompleto.\n"
-                        "Si ya no lo usas, edítalo y deja su cantidad en 0."
-                    )
 
                 conn.execute("DELETE FROM items WHERE id = ?", (item_id,))
                 conn.commit()

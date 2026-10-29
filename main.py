@@ -1,7 +1,7 @@
 """
 main.py
 --------
-Punto de entrada del sistema. Solo orquesta — no contiene lógica de negocio.
+Punto de entrada del sistema. Solo orquesta — no contiene lógica.
 
 Orden de arranque:
     1. Aplica las migraciones pendientes de la base (seguro de repetir)

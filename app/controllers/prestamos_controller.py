@@ -56,7 +56,10 @@ class PrestamosController:
             return []
 
     def obtener_historial(self, limite: int = 200) -> list[dict]:
-        """Retorna el historial de movimientos más recientes."""
+        """
+        Retorna el historial de movimientos más recientes.
+        item_eliminado = 1 si el ítem ya no está en los depósitos (se conserva su nombre).
+        """
         try:
             with conexion() as conn:
                 cursor = conn.cursor()
@@ -68,8 +71,9 @@ class PrestamosController:
                         m.motivo,
                         m.fecha,
                         m.observaciones,
-                        i.nombre        AS item_nombre,
-                        i.referencia    AS item_ref,
+                        COALESCE(i.nombre, m.item_nombre)         AS item_nombre,
+                        COALESCE(i.referencia, m.item_referencia) AS item_ref,
+                        (i.id IS NULL)                            AS item_eliminado,
                         u.nombre        AS usuario_nombre,
                         u.codigo        AS usuario_codigo,
                         d.nombre        AS docente_nombre

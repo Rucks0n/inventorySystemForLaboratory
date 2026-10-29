@@ -20,7 +20,7 @@ de seguridad en db/respaldos/.
 
 from db.database          import obtener_conexion
 from db.respaldos         import crear_respaldo
-from db.migrations        import migration_001, migration_002, migration_003
+from db.migrations        import migration_001, migration_002, migration_003, migration_004
 from app.utils.logger     import log
 
 # (número, descripción, función que aplica el cambio)
@@ -29,6 +29,7 @@ MIGRACIONES = [
     (1, "Tablas base del sistema",     migration_001.ejecutar),
     (2, "Tipos de ítem y unidad",      migration_002.ejecutar),
     (3, "Perfiles de importación",     migration_003.ejecutar),
+    (4, "Historial conserva ítems eliminados", migration_004.ejecutar),
 ]
 
 

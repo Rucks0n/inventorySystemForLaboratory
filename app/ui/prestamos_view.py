@@ -63,6 +63,11 @@ class PrestamosView(QWidget):
         if idx == 1:
             self.tab_historial.recargar()
 
+    def actualizar(self):
+        """Vuelve a leer los datos (MainWindow lo llama al entrar a esta pestaña)."""
+        self.tab_activos.recargar()
+        self.tab_historial.recargar()
+
     @staticmethod
     def _estilo_tabs():
         return """
@@ -270,6 +275,15 @@ class _TabHistorial(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 8, 4, 4)
 
+        # Alerta: solo se ve si el historial incluye ítems que ya no están en los depósitos
+        self.lbl_aviso = QLabel("⚠  Las filas resaltadas son de ítems que ya no están en los depósitos "
+                                "(fueron eliminados). Su historial se conserva.")
+        self.lbl_aviso.setWordWrap(True)
+        self.lbl_aviso.setStyleSheet("background:#FFF4D6;color:#7D6608;border:1px solid #F5D76E;"
+                                     "border-radius:4px;padding:6px;")
+        self.lbl_aviso.setVisible(False)
+        layout.addWidget(self.lbl_aviso)
+
         self.tabla = QTableWidget()
         self.tabla.setColumnCount(len(self.COLUMNAS))
         self.tabla.setHorizontalHeaderLabels(self.COLUMNAS)
@@ -295,15 +309,18 @@ class _TabHistorial(QWidget):
     def recargar(self):
         movimientos = self.ctrl.obtener_historial(limite=300)
         self.tabla.setRowCount(0)
+        self.lbl_aviso.setVisible(any(m.get("item_eliminado") for m in movimientos))
         colores_tipo = {"Salida": "#C0392B", "Devolución": "#27AE60", "Entrada": "#2980B9"}
         for m in movimientos:
             fila = self.tabla.rowCount()
             self.tabla.insertRow(fila)
+            eliminado = bool(m.get("item_eliminado"))
+            nombre = m.get("item_nombre") or ("(ítem sin nombre)" if eliminado else "")
             valores = [
                 str(m.get("id", "")),
                 str(m.get("fecha", ""))[:16],
                 m.get("tipo", ""),
-                m.get("item_nombre", "") or "",
+                f"⚠ {nombre}" if eliminado else nombre,
                 m.get("item_ref", "") or "",
                 str(m.get("cantidad", 0)),
                 m.get("usuario_nombre", "") or "",
@@ -313,6 +330,14 @@ class _TabHistorial(QWidget):
             ]
             for col, valor in enumerate(valores):
                 celda = QTableWidgetItem(valor)
+                if eliminado:                       # ítem que ya no está en los depósitos
+                    celda.setBackground(QColor("#FFF4D6"))
+                    celda.setForeground(QColor("#7D6608"))
+                    fuente = celda.font()
+                    fuente.setItalic(True)
+                    celda.setFont(fuente)
+                    celda.setToolTip("Este ítem ya no está en los depósitos (fue eliminado). "
+                                     "Se conserva su historial.")
                 if col == 2:
                     color = colores_tipo.get(valor, "#333")
                     celda.setForeground(QColor(color))

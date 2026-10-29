@@ -72,6 +72,16 @@ class MainWindow(QMainWindow):
         # self.tabs.addTab(ReportesView(self.usuario),  "📊  Reportes")   ← próximo
         # self.tabs.addTab(ConfigView(self.usuario),    "⚙️  Configuración")
 
+        # Al entrar a una pestaña se vuelven a leer sus datos: pudieron cambiar en otra
+        # (por ejemplo, un préstamo cambia las cantidades del inventario).
+        # Una vista participa si tiene un método actualizar().
+        self.tabs.currentChanged.connect(self._al_cambiar_pestana)
+
+    def _al_cambiar_pestana(self, indice: int):
+        vista = self.tabs.widget(indice)
+        if hasattr(vista, "actualizar"):
+            vista.actualizar()
+
     # ── Barra de estado ────────────────────────────────────────────────────────
 
     def _configurar_barra_estado(self):

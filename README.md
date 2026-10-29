@@ -126,6 +126,14 @@ with conexion() as conn:
 Para agregar un cambio: crea `migration_00N.py` con una función `ejecutar()` y regístrala en la
 lista `MIGRACIONES` de `db/migraciones.py`. **Nunca edites una migración que ya se aplicó.**
 
+### Eliminar ítems con historial
+
+Un ítem se puede eliminar aunque ya tenga movimientos, salvo que tenga **préstamos activos** (primero
+se devuelven). El historial se conserva: al eliminar, la base guarda el nombre y la referencia del
+ítem en cada movimiento (disparador de `migration_004.py`) y la pestaña **Historial** lo muestra
+resaltado con ⚠ y una alerta de que ya no está en los depósitos. Del ítem eliminado solo se borran
+sus préstamos ya devueltos y sus devoluciones; sus movimientos quedan.
+
 ---
 
 ## Pruebas automáticas

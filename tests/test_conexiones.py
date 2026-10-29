@@ -96,21 +96,16 @@ class PruebasSinBloqueos(BaseConBD):
 
     # ── el caso que reportó el usuario ─────────────────────────────────────
 
-    def test_eliminar_un_item_con_historial_se_explica_y_no_bloquea_lo_siguiente(self):
+    def test_un_fallo_al_eliminar_no_bloquea_lo_siguiente(self):
+        self.pre.registrar_prestamo({"item_id": 1, "usuario_id": 1, "cantidad": 1})     # préstamo activo
         ok, msg = self.inv.eliminar_item(1)
         self.assertFalse(ok)
-        self.assertIn("historial", msg)
-        self.assertIn("«Sensor»", msg)
+        self.assertIn("préstamos activos", msg)
 
         inicio = time.time()
         self.assertEqual(self.inv.agregar_item({"deposito_id": 1, "nombre": "Nuevo", "cantidad_total": 1}), (True, ""))
-        self.assertEqual(self.inv.eliminar_item(2), (True, ""))           # «Pesa» no tiene historial
+        self.assertEqual(self.inv.eliminar_item(2), (True, ""))
         self.assertLess(time.time() - inicio, 2, "algo quedó bloqueando la base")
-
-    def test_el_item_con_historial_sigue_intacto(self):
-        self.inv.eliminar_item(1)
-        self.assertEqual(self.inv.obtener_item_por_id(1)["nombre"], "Sensor")
-        self.assertEqual(self.consulta("SELECT COUNT(*) AS n FROM prestamos")[0]["n"], 1)
 
     def test_no_se_elimina_un_item_con_prestamo_activo(self):
         self.pre.registrar_prestamo({"item_id": 2, "usuario_id": 1, "cantidad": 1})
@@ -133,6 +128,9 @@ class PruebasSinBloqueos(BaseConBD):
             "ítem en un depósito inexistente": lambda: self.inv.agregar_item(
                 {"deposito_id": 999, "nombre": "X", "cantidad_total": 1}),
             "editar un ítem inexistente":     lambda: self.inv.editar_item(999, {"nombre": "X", "cantidad_total": 1}),
+            "eliminar un ítem con préstamo activo": lambda: (
+                self.pre.registrar_prestamo({"item_id": 2, "usuario_id": 1, "cantidad": 1}),
+                self.inv.eliminar_item(2)),
             "eliminar un ítem con historial": lambda: self.inv.eliminar_item(1),
             "eliminar un ítem inexistente":   lambda: self.inv.eliminar_item(999),
             "préstamo a un usuario inexistente (falla al guardar)": lambda: self.pre.registrar_prestamo(
@@ -160,7 +158,8 @@ class PruebasSinBloqueos(BaseConBD):
 
     def test_otra_conexion_puede_escribir_despues_de_cualquier_error(self):
         """La señal real del problema: ¿alguien más puede escribir?"""
-        self.inv.eliminar_item(1)
+        self.pre.registrar_prestamo({"item_id": 2, "usuario_id": 1, "cantidad": 1})
+        self.inv.eliminar_item(2)                       # falla: tiene un préstamo activo
         self.pre.registrar_prestamo({"item_id": 2, "usuario_id": 999, "cantidad": 1})
         self.docentes.agregar({"nombre": "A", "correo": "a@u.co"})
         self.docentes.agregar({"nombre": "B", "correo": "a@u.co"})
